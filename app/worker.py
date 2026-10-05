@@ -1,10 +1,17 @@
-import logging, time
+import logging, sys, time
 import redis
 
 from .config.settings import settings
 from .services.email import email_service, build_guest_invite
 
-logging.basicConfig(level=logging.INFO)
+# Explicit stdout handler at INFO so `docker logs` shows everything, even if
+# an imported library configured the root logger first (force=True).
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
+)
 logger = logging.getLogger(__name__)
 
 # Redis Stream setup
@@ -39,9 +46,17 @@ def handle_guest_invited(data: dict):
 
 # Main consumer loop
 def run():
-    logger.info(f"✓ Notification worker started — listening on Redis Stream '{settings.stream_name}'")
+    logger.info(f"✓ Notification worker started — listening on Redis Stream '{settings.stream_name}' at {settings.redis_url}")
 
-    ensure_stream_group()
+    # Broker may not be up yet (it lives outside Compose, so there's no
+    # depends_on to wait on) — keep retrying instead of exiting silently.
+    while True:
+        try:
+            ensure_stream_group()
+            break
+        except redis.exceptions.ConnectionError as e:
+            logger.warning(f"Redis not reachable at {settings.redis_url} ({e}), retrying in 5s...")
+            time.sleep(5)
 
     while True:
         try:
