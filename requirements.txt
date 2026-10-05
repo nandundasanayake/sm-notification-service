@@ -2,3 +2,4 @@ redis
 pydantic
 pydantic-settings
 python-dotenv
+qrcode[pil]

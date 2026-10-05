@@ -42,7 +42,7 @@ def handle_guest_invited(data: dict):
 
     subject, text_body, html_body = build_guest_invite(event_name, gallery_url, guest_email)
     # send() never raises — SMTP failures fall back to logging the email.
-    if email_service.send(guest_email, subject, text_body, html_body):
+    if email_service.send(guest_email, subject, text_body, html_body, qr_url=gallery_url):
         publish_email_sent(data.get("event_id"), guest_email)
 
 def publish_email_sent(event_id: str | None, guest_email: str):
