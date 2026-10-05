@@ -42,7 +42,22 @@ def handle_guest_invited(data: dict):
 
     subject, text_body, html_body = build_guest_invite(event_name, gallery_url, guest_email)
     # send() never raises — SMTP failures fall back to logging the email.
-    email_service.send(guest_email, subject, text_body, html_body)
+    if email_service.send(guest_email, subject, text_body, html_body):
+        publish_email_sent(data.get("event_id"), guest_email)
+
+def publish_email_sent(event_id: str | None, guest_email: str):
+    """Delivery receipt for sm-photographer-service (sets
+    event_collaborators.email_status). Only after a real SMTP send — a
+    logged-only fallback email leaves the guest PENDING. Non-fatal: the
+    email is already out, so a lost receipt only leaves the status stale."""
+    try:
+        r.xadd(settings.email_sent_stream, {
+            "event_id": event_id or "",
+            "guest_email": guest_email,
+            "status": "SENT",
+        })
+    except Exception as e:
+        logger.error(f"Failed to publish {settings.email_sent_stream} for {guest_email} on {event_id}: {e}")
 
 # Main consumer loop
 def run():

@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     stream_name:    str = "guest.invited"
     consumer_group: str = "notification-workers"
     consumer_name:  str = "notifier-1"
+    # Delivery receipts, consumed by sm-photographer-service.
+    email_sent_stream: str = "guest.email_sent"
     # SMTP (Gmail for testing: SMTP_USER is the Gmail address, SMTP_PASSWORD
     # a Google App Password — not the account password). When either is
     # unset, or the send fails, the worker logs the full email instead.
