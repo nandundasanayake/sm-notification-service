@@ -1,50 +1,47 @@
 import html
 import logging
-
-import boto3
+import smtplib
+import ssl
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+# Fail fast if the SMTP host is unreachable (e.g. port 587 blocked) instead
+# of stalling the consumer loop.
+_SMTP_TIMEOUT_SECONDS = 15
+
 
 class EmailService:
-    def __init__(self):
-        self._client = None
-
-    def _ses(self):
-        # Created lazily so a bad AWS config surfaces inside send()'s
-        # try/except (and falls back to logging) instead of at startup.
-        if self._client is None:
-            kwargs = {"region_name": settings.aws_region}
-            if settings.aws_access_key_id and settings.aws_secret_access_key:
-                kwargs["aws_access_key_id"] = settings.aws_access_key_id
-                kwargs["aws_secret_access_key"] = settings.aws_secret_access_key
-            self._client = boto3.client("ses", **kwargs)
-        return self._client
-
     def send(self, to: str, subject: str, text_body: str, html_body: str) -> bool:
-        """Send via SES. Never raises: on any failure (missing credentials,
-        unverified identities, throttling, ...) the full email is logged
-        instead. Returns True only if SES accepted the message."""
-        sender = settings.ses_sender_email
+        """Send via SMTP (STARTTLS). Never raises: if SMTP_USER/SMTP_PASSWORD
+        aren't set, or the send fails (connection, TLS, auth, rejected
+        recipient, ...), the full email is logged instead. Returns True only
+        if the SMTP server accepted the message."""
+        sender = settings.from_address
         try:
-            resp = self._ses().send_email(
-                Source=sender,
-                Destination={"ToAddresses": [to]},
-                Message={
-                    "Subject": {"Data": subject, "Charset": "UTF-8"},
-                    "Body": {
-                        "Text": {"Data": text_body, "Charset": "UTF-8"},
-                        "Html": {"Data": html_body, "Charset": "UTF-8"},
-                    },
-                },
-            )
-            logger.info(f"✉️ Sent '{subject}' to {to} (SES MessageId={resp.get('MessageId')})")
+            if not settings.smtp_user or not settings.smtp_password:
+                raise RuntimeError("SMTP_USER / SMTP_PASSWORD not set")
+
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = sender
+            msg["To"] = to
+            msg.attach(MIMEText(text_body, "plain", "utf-8"))
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=_SMTP_TIMEOUT_SECONDS) as smtp:
+                smtp.starttls(context=ssl.create_default_context())
+                smtp.login(settings.smtp_user, settings.smtp_password)
+                smtp.sendmail(sender, [to], msg.as_string())
+
+            logger.info(f"✉️ Sent '{subject}' to {to} via {settings.smtp_host}:{settings.smtp_port}")
             return True
         except Exception as e:
             logger.warning(
-                f"SES send failed ({type(e).__name__}: {e}) — logging email instead:\n"
+                f"SMTP send failed ({type(e).__name__}: {e}) — logging email instead:\n"
                 f"----- EMAIL -----\n"
                 f"From:    {sender}\n"
                 f"To:      {to}\n"

@@ -41,7 +41,7 @@ def handle_guest_invited(data: dict):
         return
 
     subject, text_body, html_body = build_guest_invite(event_name, gallery_url, guest_email)
-    # send() never raises — SES failures fall back to logging the email.
+    # send() never raises — SMTP failures fall back to logging the email.
     email_service.send(guest_email, subject, text_body, html_body)
 
 # Main consumer loop
